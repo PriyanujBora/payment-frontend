@@ -1,0 +1,1110 @@
+import React, { useEffect, useRef, useState } from 'react';
+import type {
+  MainWorkerFlag,
+  PaymentFormData,
+  PaymentType,
+  RecordType,
+  WorkerFormRow,
+  WorkerTypeName
+} from '@/types/payment';
+import { ComboboxInput } from '@/components/payments/ComboboxInput';
+import { type MeasureMode } from '@/components/payments/MeasureModeSwitch';
+import { Button } from '@/components/ui/button';
+import { DatePicker } from '@/components/ui/DatePicker';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
+import {
+  Field,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet
+} from '@/components/ui/field';
+import { FormInput } from '@/components/ui/form-input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Spinner } from '@/components/ui/spinner';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import {
+  Box,
+  Building2,
+  Check,
+  CreditCard,
+  Landmark,
+  Plus,
+  Trash2,
+  User
+} from 'lucide-react';
+
+type WorkerFieldKey =
+  | 'worker_name'
+  | 'worker_type'
+  | 'is_main_worker'
+  | 'amount_payable'
+  | 'amount_paid'
+  | 'mode_of_payment'
+  | 'bank';
+
+type FieldErrors = Partial<Record<string, string>>;
+
+const NUMERIC_DECIMAL_PATTERN = /^(?:\d+(?:\.\d*)?|\.\d*)?$/;
+const NUMERIC_VALUE_PATTERN = /^(?:\d+(?:\.\d+)?|\.\d+)$/;
+const ALPHABETS_INPUT_PATTERN = /^[A-Za-z ]*$/;
+const ALPHABETS_VALUE_PATTERN = /^[A-Za-z]+(?: [A-Za-z]+)*$/;
+const LETTERS_NOT_ALLOWED = 'Only numbers and decimals allowed';
+const ALPHABETS_ONLY = 'Only letters allowed';
+const MODE_MAX_LENGTH = 10;
+const MODE_TOO_LONG = `Max ${MODE_MAX_LENGTH} characters allowed`;
+const PAID_EXCEEDS_PAYABLE = 'Amount paid cannot be higher than amount payable';
+
+const RECORD_TYPE_OPTIONS: { value: RecordType; label: string }[] = [
+  { value: 'supplier', label: 'Supplier' },
+  { value: 'worker', label: 'Worker' }
+];
+
+
+
+interface PaymentModalProps {
+  isOpen: boolean;
+  isEdit: boolean;
+  editingId: number | null;
+  formData: PaymentFormData;
+  setFormData: React.Dispatch<React.SetStateAction<PaymentFormData>>;
+  onClose: () => void;
+  onSubmit: (e: React.FormEvent) => void;
+  isSaving: boolean;
+}
+
+export function createEmptyWorkerRow(isMain: boolean = false): WorkerFormRow {
+  return {
+    worker_name: '',
+    is_main_worker: isMain ? 'Yes' : 'No',
+    worker_type: 'permanent',
+    amount_payable: '',
+    amount_paid: '',
+    mode_of_payment: '',
+    bank: ''
+  };
+}
+
+function isNumericDecimalInput(value: string): boolean {
+  return NUMERIC_DECIMAL_PATTERN.test(value);
+}
+
+function isAlphabeticInput(value: string): boolean {
+  return ALPHABETS_INPUT_PATTERN.test(value);
+}
+
+function isValidAlphabeticValue(value: string): boolean {
+  const trimmed = value.trim().replace(/\s+/g, ' ');
+  return trimmed === '' || ALPHABETS_VALUE_PATTERN.test(trimmed);
+}
+
+function parseMultiplier(value: string): number {
+  if (!value.trim()) return NaN;
+  const num = parseFloat(value);
+  return Number.isNaN(num) ? NaN : num;
+}
+
+function formatTotal(amount: number): string {
+  return Number.isInteger(amount) ? amount.toString() : amount.toFixed(2);
+}
+
+function withSupplierTotal(data: PaymentFormData, measureMode: MeasureMode): PaymentFormData {
+  const price = parseFloat(data.price);
+  if (Number.isNaN(price)) {
+    return { ...data, total_amount: '0.00' };
+  }
+
+  const raw = measureMode === 'quantity' ? data.quantity : data.weight;
+  const multiplier = parseMultiplier(raw);
+  const factor = Number.isNaN(multiplier) ? 1 : multiplier;
+  return { ...data, total_amount: formatTotal(price * factor) };
+}
+
+function validateAmountPair(
+  payable: string,
+  paid: string,
+  payableKey: string,
+  paidKey: string,
+  errors: FieldErrors
+) {
+  if (!payable.trim()) {
+    errors[payableKey] = 'Amount payable is required';
+  } else {
+    const val = parseFloat(payable);
+    if (Number.isNaN(val) || val < 0) {
+      errors[payableKey] = 'Enter a valid non-negative amount';
+    }
+  }
+
+  if (!paid.trim()) {
+    errors[paidKey] = 'Amount paid is required';
+  } else {
+    const val = parseFloat(paid);
+    if (Number.isNaN(val) || val < 0) {
+      errors[paidKey] = 'Enter a valid non-negative amount';
+    }
+  }
+
+  if (!errors[payableKey] && !errors[paidKey]) {
+    if (parseFloat(paid) > parseFloat(payable)) {
+      errors[paidKey] = PAID_EXCEEDS_PAYABLE;
+    }
+  }
+}
+
+function validateModeAndBank(
+  mode: string,
+  bank: string,
+  modeKey: string,
+  bankKey: string,
+  errors: FieldErrors
+) {
+  if (!mode.trim()) {
+    errors[modeKey] = 'Mode of payment is required';
+  } else if (mode.trim().length > MODE_MAX_LENGTH) {
+    errors[modeKey] = MODE_TOO_LONG;
+  } else if (!isValidAlphabeticValue(mode)) {
+    errors[modeKey] = ALPHABETS_ONLY;
+  }
+
+  if (!bank.trim()) {
+    errors[bankKey] = 'Bank name is required';
+  } else if (!isValidAlphabeticValue(bank)) {
+    errors[bankKey] = ALPHABETS_ONLY;
+  }
+}
+
+function validateSupplierFields(
+  formData: PaymentFormData,
+  measureMode: MeasureMode
+): FieldErrors {
+  const errors: FieldErrors = {};
+
+  if (!formData.item.trim()) errors.item = 'Item name is required';
+  if (!formData.supplier.trim()) {
+    errors.supplier = 'Supplier is required';
+  } else if (!isValidAlphabeticValue(formData.supplier)) {
+    errors.supplier = ALPHABETS_ONLY;
+  }
+  if (!formData.brand.trim()) {
+    errors.brand = 'Brand is required';
+  } else if (!isValidAlphabeticValue(formData.brand)) {
+    errors.brand = ALPHABETS_ONLY;
+  }
+  if (!formData.size.trim()) errors.size = 'Size is required';
+
+  if (!formData.price.trim()) {
+    errors.price = 'Unit price is required';
+  } else {
+    const price = parseFloat(formData.price);
+    if (Number.isNaN(price) || price < 0) {
+      errors.price = 'Enter a valid non-negative price';
+    }
+  }
+
+  const measureValue = measureMode === 'quantity' ? formData.quantity : formData.weight;
+  const cleanedMeasure = measureValue.trim().replace(/\.$/, '');
+  if (!cleanedMeasure) {
+    errors[measureMode] = `${measureMode === 'quantity' ? 'Quantity' : 'Weight'} is required`;
+  } else if (!NUMERIC_VALUE_PATTERN.test(cleanedMeasure)) {
+    errors[measureMode] = LETTERS_NOT_ALLOWED;
+  }
+
+  validateModeAndBank(
+    formData.mode_of_payment,
+    formData.bank,
+    'mode_of_payment',
+    'bank',
+    errors
+  );
+
+  if (!formData.date_of_payment.trim()) {
+    errors.date_of_payment = 'Date of payment is required';
+  }
+
+  return errors;
+}
+
+function validateWorkerFields(formData: PaymentFormData): FieldErrors {
+  const errors: FieldErrors = {};
+  const isAltogether = formData.payment_type === 'altogether';
+
+  if (!formData.date_of_payment.trim()) {
+    errors.date_of_payment = 'Date of payment is required';
+  }
+
+  if (isAltogether) {
+    validateAmountPair(
+      formData.amount_payable,
+      formData.amount_paid,
+      'amount_payable',
+      'amount_paid',
+      errors
+    );
+    validateModeAndBank(
+      formData.mode_of_payment,
+      formData.bank,
+      'mode_of_payment',
+      'bank',
+      errors
+    );
+  }
+
+  if (!formData.workers.length) {
+    errors.workers = 'At least one worker is required';
+    return errors;
+  }
+
+  const mainCount = formData.workers.filter(w => w.is_main_worker === 'Yes').length;
+  if (mainCount !== 1) {
+    errors.workers = 'Exactly one worker must be marked as main worker';
+  }
+
+  formData.workers.forEach((worker, index) => {
+    const prefix = `workers.${index}`;
+
+    if (!worker.worker_name.trim()) {
+      errors[`${prefix}.worker_name`] = 'Worker name is required';
+    } else if (!isValidAlphabeticValue(worker.worker_name)) {
+      errors[`${prefix}.worker_name`] = ALPHABETS_ONLY;
+    }
+
+    if (!worker.worker_type) {
+      errors[`${prefix}.worker_type`] = 'Worker type is required';
+    }
+
+    if (!isAltogether) {
+      validateAmountPair(
+        worker.amount_payable,
+        worker.amount_paid,
+        `${prefix}.amount_payable`,
+        `${prefix}.amount_paid`,
+        errors
+      );
+      validateModeAndBank(
+        worker.mode_of_payment,
+        worker.bank,
+        `${prefix}.mode_of_payment`,
+        `${prefix}.bank`,
+        errors
+      );
+    }
+  });
+
+  return errors;
+}
+
+export function PaymentModal({
+  isOpen,
+  isEdit,
+  editingId,
+  formData,
+  setFormData,
+  onClose,
+  onSubmit,
+  isSaving
+}: PaymentModalProps) {
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const letterErrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const recordType: RecordType = formData.record_type ?? 'supplier';
+  const paymentType: PaymentType = formData.payment_type ?? 'altogether';
+
+  useEffect(() => {
+    return () => {
+      if (letterErrorTimeoutRef.current) {
+        clearTimeout(letterErrorTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      setFieldErrors({});
+    }
+  }, [isOpen, editingId]);
+
+  const derivedMeasureMode: MeasureMode =
+    Boolean(formData.weight.trim()) && !Boolean(formData.quantity.trim())
+      ? 'weight'
+      : 'quantity';
+
+  const [overrideMeasureMode, setOverrideMeasureMode] = useState<MeasureMode | null>(null);
+  const measureMode = overrideMeasureMode ?? derivedMeasureMode;
+  const setMeasureMode = (mode: MeasureMode) => setOverrideMeasureMode(mode);
+
+  const clearFieldError = (field: string) => {
+    setFieldErrors(prev => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const showTransientError = (field: string, message: string) => {
+    setFieldErrors(prev => ({ ...prev, [field]: message }));
+
+    if (letterErrorTimeoutRef.current) {
+      clearTimeout(letterErrorTimeoutRef.current);
+    }
+
+    letterErrorTimeoutRef.current = setTimeout(() => {
+      setFieldErrors(prev => {
+        if (prev[field] !== message) return prev;
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+      letterErrorTimeoutRef.current = null;
+    }, 2200);
+  };
+
+  const handleRecordTypeChange = (type: RecordType) => {
+    if (type === recordType) return;
+    setFieldErrors({});
+
+    if (type === 'worker') {
+      setFormData(prev => ({
+        ...prev,
+        record_type: 'worker',
+        item: '',
+        supplier: '',
+        brand: '',
+        quantity: '',
+        weight: '',
+        size: '',
+        price: '',
+        total_amount: '0.00',
+        payment_type: prev.payment_type || 'altogether',
+        amount_payable: '',
+        amount_paid: '',
+        mode_of_payment: '',
+        bank: '',
+        workers: prev.workers?.length ? prev.workers : [createEmptyWorkerRow(true)]
+      }));
+      return;
+    }
+
+    setMeasureMode('quantity');
+    setFormData(prev =>
+      withSupplierTotal(
+        {
+          ...prev,
+          record_type: 'supplier',
+          payment_type: 'altogether',
+          amount_payable: '',
+          amount_paid: '',
+          workers: [createEmptyWorkerRow(true)],
+          mode_of_payment: '',
+          bank: ''
+        },
+        'quantity'
+      )
+    );
+  };
+
+  const handlePaymentTypeChange = (type: PaymentType) => {
+    if (type === paymentType) return;
+    setFieldErrors({});
+    setFormData(prev => ({
+      ...prev,
+      payment_type: type,
+      amount_payable: '',
+      amount_paid: '',
+      mode_of_payment: '',
+      bank: '',
+      workers: prev.workers.map(w => ({
+        ...w,
+        amount_payable: '',
+        amount_paid: '',
+        mode_of_payment: '',
+        bank: ''
+      }))
+    }));
+  };
+
+  const handleMeasureModeChange = (mode: MeasureMode) => {
+    setMeasureMode(mode);
+    setFieldErrors(prev => {
+      const next = { ...prev };
+      delete next.quantity;
+      delete next.weight;
+      return next;
+    });
+
+    setFormData(prev =>
+      withSupplierTotal(
+        {
+          ...prev,
+          quantity: mode === 'quantity' ? prev.quantity : '',
+          weight: mode === 'weight' ? prev.weight : ''
+        },
+        mode
+      )
+    );
+  };
+
+  const handleChange = (field: keyof PaymentFormData, value: string) => {
+    const alphaFields: Array<keyof PaymentFormData> = [
+      'supplier',
+      'brand',
+      'mode_of_payment',
+      'bank'
+    ];
+    const numericFields: Array<keyof PaymentFormData> = [
+      'price',
+      'quantity',
+      'weight',
+      'amount_payable',
+      'amount_paid'
+    ];
+
+    if (numericFields.includes(field)) {
+      if (!isNumericDecimalInput(value)) {
+        showTransientError(String(field), LETTERS_NOT_ALLOWED);
+        return;
+      }
+      clearFieldError(String(field));
+    }
+
+    if (alphaFields.includes(field)) {
+      if (!isAlphabeticInput(value)) {
+        showTransientError(String(field), ALPHABETS_ONLY);
+        return;
+      }
+      if (field === 'mode_of_payment' && value.length > MODE_MAX_LENGTH) {
+        showTransientError('mode_of_payment', MODE_TOO_LONG);
+        return;
+      }
+      clearFieldError(String(field));
+    }
+
+    if (field === 'item' || field === 'size' || field === 'date_of_payment') {
+      clearFieldError(String(field));
+    }
+
+    setFormData(prev => {
+      const next = { ...prev, [field]: value } as PaymentFormData;
+      if (field === 'price' || field === 'quantity' || field === 'weight') {
+        return withSupplierTotal(next, measureMode);
+      }
+      return next;
+    });
+  };
+
+  const updateWorker = (index: number, patch: Partial<WorkerFormRow>) => {
+    setFormData(prev => {
+      if (patch.is_main_worker === 'No' && prev.workers[index]?.is_main_worker === 'Yes') {
+        // Keep exactly one main worker: ignore demoting the current main via No.
+        const { is_main_worker: _ignored, ...rest } = patch;
+        if (Object.keys(rest).length === 0) return prev;
+        const workers = prev.workers.map((row, i) =>
+          i === index ? { ...row, ...rest } : row
+        );
+        return { ...prev, workers };
+      }
+
+      const workers = prev.workers.map((row, i) => {
+        if (i !== index) {
+          if (patch.is_main_worker === 'Yes') {
+            return { ...row, is_main_worker: 'No' as MainWorkerFlag };
+          }
+          return row;
+        }
+        return { ...row, ...patch };
+      });
+      return { ...prev, workers };
+    });
+  };
+
+  const handleWorkerChange = (index: number, field: WorkerFieldKey, value: string) => {
+    const key = `workers.${index}.${field}`;
+
+    if (
+      field === 'amount_payable' ||
+      field === 'amount_paid'
+    ) {
+      if (!isNumericDecimalInput(value)) {
+        showTransientError(key, LETTERS_NOT_ALLOWED);
+        return;
+      }
+      clearFieldError(key);
+      updateWorker(index, { [field]: value });
+      return;
+    }
+
+    if (field === 'worker_name' || field === 'mode_of_payment' || field === 'bank') {
+      if (!isAlphabeticInput(value)) {
+        showTransientError(key, ALPHABETS_ONLY);
+        return;
+      }
+      if (field === 'mode_of_payment' && value.length > MODE_MAX_LENGTH) {
+        showTransientError(key, MODE_TOO_LONG);
+        return;
+      }
+      clearFieldError(key);
+      updateWorker(index, { [field]: value });
+      return;
+    }
+
+    clearFieldError(key);
+    updateWorker(index, { [field]: value } as Partial<WorkerFormRow>);
+  };
+
+  const handleAddWorker = () => {
+    setFormData(prev => ({
+      ...prev,
+      workers: [...prev.workers, createEmptyWorkerRow(false)]
+    }));
+  };
+
+  const handleRemoveWorker = (index: number) => {
+    setFormData(prev => {
+      if (prev.workers.length <= 1) return prev;
+      const removed = prev.workers[index];
+      let workers = prev.workers.filter((_, i) => i !== index);
+      if (removed.is_main_worker === 'Yes' && workers.length > 0) {
+        workers = workers.map((w, i) =>
+          i === 0 ? { ...w, is_main_worker: 'Yes' } : { ...w, is_main_worker: 'No' }
+        );
+      }
+      return { ...prev, workers };
+    });
+    setFieldErrors({});
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const errors =
+      recordType === 'worker'
+        ? validateWorkerFields(formData)
+        : validateSupplierFields(formData, measureMode);
+    setFieldErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      return;
+    }
+
+    onSubmit(e);
+  };
+
+  const activeMeasureError =
+    measureMode === 'quantity' ? fieldErrors.quantity : fieldErrors.weight;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={open => !open && onClose()}>
+      <DialogContent className="grid max-h-[90vh] w-full max-w-3xl grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="border-b px-5 py-3">
+          <DialogTitle>{isEdit ? `Edit record #${editingId}` : 'New payment record'}</DialogTitle>
+          <DialogDescription>
+            {isEdit ? 'Update the fields below and save.' : 'Fill in the payment details below.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        <form
+          onSubmit={handleSubmit}
+          noValidate
+          className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto_auto] overflow-hidden"
+        >
+          <div className="flex shrink-0 flex-col gap-2 border-b bg-background px-5 py-3">
+            <Tabs
+              value={recordType}
+              onValueChange={value => handleRecordTypeChange(value as RecordType)}
+              className="w-full"
+            >
+              <TabsList className="w-full" aria-label="Record type">
+                {RECORD_TYPE_OPTIONS.map(option => (
+                  <TabsTrigger key={option.value} value={option.value} className="flex-1">
+                    {option.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+
+            {recordType === 'worker' ? (
+              <Field orientation="horizontal" className="justify-between">
+                <FieldLabel className="text-sm font-medium text-muted-foreground">
+                  Pay workers
+                </FieldLabel>
+                <Select
+                  value={paymentType}
+                  onValueChange={val => handlePaymentTypeChange(val as PaymentType)}
+                >
+                  <SelectTrigger id="paymentType" className="w-40 sm:w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="altogether">All together</SelectItem>
+                      <SelectItem value="separate">Separately</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+            ) : null}
+          </div>
+
+          <ScrollArea className="h-full min-h-0">
+            <div className="flex flex-col gap-3 px-5 py-3">
+            {recordType === 'supplier' ? (
+              <>
+                <FieldSet>
+                  <FieldLegend className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    Item details
+                  </FieldLegend>
+                  <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <ComboboxInput
+                      id="item"
+                      name="item"
+                      value={formData.item}
+                      onChange={val => handleChange('item', val)}
+                      entityName="item"
+                      label="Item name"
+                      requiredMark
+                      error={fieldErrors.item}
+                      icon={<Box aria-hidden="true" />}
+                      placeholder="Enter item name"
+                    />
+
+                    <ComboboxInput
+                      id="supplier"
+                      name="supplier"
+                      value={formData.supplier}
+                      onChange={val => handleChange('supplier', val)}
+                      entityName="supplier"
+                      label="Supplier"
+                      requiredMark
+                      error={fieldErrors.supplier}
+                      icon={<Building2 aria-hidden="true" />}
+                      placeholder="Enter supplier name"
+                    />
+
+                    <ComboboxInput
+                      id="brand"
+                      name="brand"
+                      value={formData.brand}
+                      onChange={val => handleChange('brand', val)}
+                      entityName="brand"
+                      label="Brand"
+                      requiredMark
+                      error={fieldErrors.brand}
+                      placeholder="Enter brand name"
+                    />
+
+                    <Field>
+                      <FieldLabel>Measure by</FieldLabel>
+                      <Select
+                        value={measureMode}
+                        onValueChange={val => handleMeasureModeChange(val as MeasureMode)}
+                      >
+                        <SelectTrigger id="measureMode" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="quantity">Quantity</SelectItem>
+                            <SelectItem value="weight">Weight</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
+                    {measureMode === 'quantity' ? (
+                      <FormInput
+                        id="quantity"
+                        name="quantity"
+                        inputMode="decimal"
+                        value={formData.quantity}
+                        onChange={e => handleChange('quantity', e.target.value)}
+                        label="Quantity"
+                        requiredMark
+                        error={activeMeasureError}
+                        autoComplete="off"
+                        placeholder="Enter quantity"
+                        className="text-right tabular-nums"
+                      />
+                    ) : (
+                      <FormInput
+                        id="weight"
+                        name="weight"
+                        inputMode="decimal"
+                        value={formData.weight}
+                        onChange={e => handleChange('weight', e.target.value)}
+                        label="Weight"
+                        requiredMark
+                        error={activeMeasureError}
+                        autoComplete="off"
+                        placeholder="Enter weight"
+                        className="text-right tabular-nums"
+                      />
+                    )}
+
+                    <FormInput
+                      id="size"
+                      name="size"
+                      value={formData.size}
+                      onChange={e => handleChange('size', e.target.value)}
+                      label="Size"
+                      requiredMark
+                      error={fieldErrors.size}
+                      autoComplete="off"
+                      placeholder="Enter size"
+                    />
+                  </FieldGroup>
+                </FieldSet>
+
+                <Separator />
+
+                <FieldSet>
+                  <FieldLegend className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    Pricing
+                  </FieldLegend>
+                  <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <FormInput
+                      type="number"
+                      step="any"
+                      min="0"
+                      id="price"
+                      name="price"
+                      value={formData.price}
+                      onChange={e => handleChange('price', e.target.value)}
+                      label="Unit price"
+                      requiredMark
+                      error={fieldErrors.price}
+                      prefix="₹"
+                      autoComplete="off"
+                      placeholder="0.00"
+                      className="text-right tabular-nums"
+                    />
+
+                    <FormInput
+                      id="totalAmount"
+                      name="totalAmount"
+                      value={formData.total_amount}
+                      readOnly
+                      label="Total amount"
+                      prefix="₹"
+                      suffix={
+                        <Badge variant="secondary" className="text-[10px] font-normal">
+                          auto
+                        </Badge>
+                      }
+                      className="text-right font-medium tabular-nums"
+                    />
+                  </FieldGroup>
+                </FieldSet>
+              </>
+            ) : (
+              <>
+                {paymentType === 'altogether' ? (
+                  <FieldSet>
+                    <FieldLegend className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Payment amounts
+                    </FieldLegend>
+                    <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <FormInput
+                        id="amountPayable"
+                        name="amountPayable"
+                        inputMode="decimal"
+                        value={formData.amount_payable}
+                        onChange={e => handleChange('amount_payable', e.target.value)}
+                        label="Amount payable"
+                        requiredMark
+                        error={fieldErrors.amount_payable}
+                        prefix="₹"
+                        placeholder="0.00"
+                        className="text-right tabular-nums"
+                      />
+                      <FormInput
+                        id="amountPaid"
+                        name="amountPaid"
+                        inputMode="decimal"
+                        value={formData.amount_paid}
+                        onChange={e => handleChange('amount_paid', e.target.value)}
+                        label="Amount paid"
+                        requiredMark
+                        error={fieldErrors.amount_paid}
+                        prefix="₹"
+                        placeholder="0.00"
+                        className="text-right tabular-nums"
+                      />
+                    </FieldGroup>
+                  </FieldSet>
+                ) : null}
+
+                <Separator />
+
+                <FieldSet>
+                  <FieldLegend className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    Workers
+                  </FieldLegend>
+                  {fieldErrors.workers ? <FieldError>{fieldErrors.workers}</FieldError> : null}
+
+                  <div className="flex flex-col gap-4">
+                    {formData.workers.map((worker, index) => {
+                      const prefix = `workers.${index}`;
+                      return (
+                        <div
+                          key={index}
+                          className="rounded-lg border border-border bg-card/40 p-3"
+                        >
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <p className="text-xs font-medium text-muted-foreground">
+                              Worker {index + 1}
+                            </p>
+                            {formData.workers.length > 1 ? (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveWorker(index)}
+                                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                              >
+                                <Trash2 className="size-3" aria-hidden="true" />
+                                Remove
+                              </button>
+                            ) : null}
+                          </div>
+
+                          {/* Row 1: name | worker type | role — always 3 columns */}
+                          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                            <ComboboxInput
+                              id={`workerName-${index}`}
+                              name={`workerName-${index}`}
+                              value={worker.worker_name}
+                              onChange={val => handleWorkerChange(index, 'worker_name', val)}
+                              entityName="worker"
+                              label="Worker name"
+                              requiredMark
+                              error={fieldErrors[`${prefix}.worker_name`]}
+                              icon={<User aria-hidden="true" />}
+                              placeholder="Enter worker name"
+                            />
+
+                            <Field data-invalid={fieldErrors[`${prefix}.worker_type`] ? true : undefined}>
+                              <FieldLabel>
+                                Worker type
+                              </FieldLabel>
+                              <Select
+                                value={worker.worker_type}
+                                onValueChange={val => handleWorkerChange(index, 'worker_type', val)}
+                              >
+                                <SelectTrigger
+                                  id={`worker-type-${index}`}
+                                  className="w-full"
+                                  aria-invalid={fieldErrors[`${prefix}.worker_type`] ? true : undefined}
+                                >
+                                  <SelectValue placeholder="Select type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectGroup>
+                                    <SelectItem value="permanent">Permanent</SelectItem>
+                                    <SelectItem value="temporary">Temporary</SelectItem>
+                                  </SelectGroup>
+                                </SelectContent>
+                              </Select>
+                              {fieldErrors[`${prefix}.worker_type`] ? (
+                                <FieldError>{fieldErrors[`${prefix}.worker_type`]}</FieldError>
+                              ) : null}
+                            </Field>
+
+                            <Field data-invalid={fieldErrors[`${prefix}.is_main_worker`] ? true : undefined}>
+                              <FieldLabel>
+                                Role
+                              </FieldLabel>
+                              <Select
+                                value={worker.is_main_worker}
+                                onValueChange={val => handleWorkerChange(index, 'is_main_worker', val)}
+                              >
+                                <SelectTrigger
+                                  id={`worker-role-${index}`}
+                                  className="w-full"
+                                  aria-invalid={fieldErrors[`${prefix}.is_main_worker`] ? true : undefined}
+                                >
+                                  <SelectValue placeholder="Select role" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectGroup>
+                                    <SelectItem value="Yes">Main</SelectItem>
+                                    <SelectItem value="No">Helper</SelectItem>
+                                  </SelectGroup>
+                                </SelectContent>
+                              </Select>
+                              {fieldErrors[`${prefix}.is_main_worker`] ? (
+                                <FieldError>{fieldErrors[`${prefix}.is_main_worker`]}</FieldError>
+                              ) : null}
+                            </Field>
+                          </div>
+
+                          {/* Row 2+: payment fields (separate mode only) — 2 columns */}
+                          {paymentType === 'separate' ? (
+                            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <FormInput
+                                id={`workerPayable-${index}`}
+                                name={`workerPayable-${index}`}
+                                inputMode="decimal"
+                                value={worker.amount_payable}
+                                onChange={e =>
+                                  handleWorkerChange(index, 'amount_payable', e.target.value)
+                                }
+                                label="Amount payable"
+                                requiredMark
+                                error={fieldErrors[`${prefix}.amount_payable`]}
+                                prefix="₹"
+                                placeholder="0.00"
+                                className="text-right tabular-nums"
+                              />
+                              <FormInput
+                                id={`workerPaid-${index}`}
+                                name={`workerPaid-${index}`}
+                                inputMode="decimal"
+                                value={worker.amount_paid}
+                                onChange={e =>
+                                  handleWorkerChange(index, 'amount_paid', e.target.value)
+                                }
+                                label="Amount paid"
+                                requiredMark
+                                error={fieldErrors[`${prefix}.amount_paid`]}
+                                prefix="₹"
+                                placeholder="0.00"
+                                className="text-right tabular-nums"
+                              />
+                              <ComboboxInput
+                                id={`workerMode-${index}`}
+                                name={`workerMode-${index}`}
+                                value={worker.mode_of_payment}
+                                onChange={val =>
+                                  handleWorkerChange(index, 'mode_of_payment', val)
+                                }
+                                entityName="mode_of_payment"
+                                label="Mode of payment"
+                                requiredMark
+                                maxLength={MODE_MAX_LENGTH}
+                                showCount
+                                error={fieldErrors[`${prefix}.mode_of_payment`]}
+                                icon={<CreditCard aria-hidden="true" />}
+                                placeholder="Cash, UPI..."
+                              />
+                              <ComboboxInput
+                                id={`workerBank-${index}`}
+                                name={`workerBank-${index}`}
+                                value={worker.bank}
+                                onChange={val => handleWorkerChange(index, 'bank', val)}
+                                entityName="bank"
+                                label="Bank name"
+                                requiredMark
+                                error={fieldErrors[`${prefix}.bank`]}
+                                icon={<Landmark aria-hidden="true" />}
+                                placeholder="Enter bank name"
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={handleAddWorker}
+                  >
+                    <Plus className="size-3.5" aria-hidden="true" />
+                    Add worker
+                  </Button>
+                </FieldSet>
+              </>
+            )}
+            </div>
+          </ScrollArea>
+
+          <div className="shrink-0 border-t bg-background px-5 py-3">
+            <FieldSet>
+              <FieldLegend className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Payment
+              </FieldLegend>
+              <FieldGroup
+                className={
+                  recordType === 'worker' && paymentType === 'separate'
+                    ? 'grid grid-cols-1 gap-4'
+                    : 'grid grid-cols-1 gap-4 sm:grid-cols-3'
+                }
+              >
+                {!(recordType === 'worker' && paymentType === 'separate') ? (
+                  <>
+                    <ComboboxInput
+                      id="modeOfPayment"
+                      name="modeOfPayment"
+                      value={formData.mode_of_payment}
+                      onChange={val => handleChange('mode_of_payment', val)}
+                      entityName="mode_of_payment"
+                      label="Mode of payment"
+                      requiredMark
+                      maxLength={MODE_MAX_LENGTH}
+                      showCount
+                      error={fieldErrors.mode_of_payment}
+                      icon={<CreditCard aria-hidden="true" />}
+                      placeholder="Cash, UPI..."
+                    />
+
+                    <ComboboxInput
+                      id="bank"
+                      name="bank"
+                      value={formData.bank}
+                      onChange={val => handleChange('bank', val)}
+                      entityName="bank"
+                      label="Bank name"
+                      requiredMark
+                      error={fieldErrors.bank}
+                      icon={<Landmark aria-hidden="true" />}
+                      placeholder="Enter bank name"
+                    />
+                  </>
+                ) : null}
+
+                <DatePicker
+                  id="date_of_payment"
+                  name="date_of_payment"
+                  value={formData.date_of_payment}
+                  onChange={val => handleChange('date_of_payment', val)}
+                  label="Date of payment"
+                  requiredMark
+                  error={fieldErrors.date_of_payment}
+                />
+              </FieldGroup>
+            </FieldSet>
+          </div>
+
+          <DialogFooter className="mx-0 mb-0 shrink-0 border-t bg-background px-5 py-3">
+            <Button type="button" variant="outline" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" disabled={isSaving}>
+              {isSaving ? <Spinner data-icon="inline-start" /> : <Check data-icon="inline-start" />}
+              {isEdit ? 'Save changes' : 'Create record'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
