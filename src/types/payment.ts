@@ -14,9 +14,7 @@ export interface WorkerPaymentRecord {
   amount_payable: number | string | null;
   amount_paid: number | string | null;
   mode_of_payment: string | null;
-  bank: string | null;
   mode_of_payment_id?: number | null;
-  bank_id?: number | null;
 }
 
 export interface WorkerFormRow {
@@ -26,7 +24,6 @@ export interface WorkerFormRow {
   amount_payable: string;
   amount_paid: string;
   mode_of_payment: string;
-  bank: string;
 }
 
 export interface Payment {
@@ -42,12 +39,10 @@ export interface Payment {
   price?: string | null;
   total_amount?: string | null;
   mode_of_payment_id?: number | null;
-  bank_id?: number | null;
   supplier?: string | null;
   item?: string | null;
   brand?: string | null;
   mode_of_payment?: string | null;
-  bank?: string | null;
   // Worker fields
   payment_type?: PaymentType | null;
   amount_payable?: number | string | null;
@@ -70,7 +65,6 @@ export interface PaymentFormData {
   price: string;
   total_amount: string;
   mode_of_payment: string;
-  bank: string;
   date_of_payment: string;
   // Worker
   payment_type: PaymentType;
@@ -103,5 +97,4 @@ export type EntityType =
   | 'supplier'
   | 'brand'
   | 'mode_of_payment'
-  | 'bank'
   | 'worker';

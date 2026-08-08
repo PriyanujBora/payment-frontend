@@ -16,11 +16,6 @@ function workerMode(payment: Payment): string {
   return payment.workers?.find(w => w.mode_of_payment)?.mode_of_payment || '';
 }
 
-function workerBank(payment: Payment): string {
-  if (payment.bank) return payment.bank;
-  return payment.workers?.find(w => w.bank)?.bank || '';
-}
-
 export function exportPaymentsToCsv(payments: Payment[], filter: RecordViewFilter = 'all'): void {
   const headers = [
     'ID',
@@ -37,7 +32,6 @@ export function exportPaymentsToCsv(payments: Payment[], filter: RecordViewFilte
     'Amount Paid / Total',
     'Workers',
     'Mode of Payment',
-    'Bank',
     'Date of Payment'
   ];
 
@@ -62,7 +56,6 @@ export function exportPaymentsToCsv(payments: Payment[], filter: RecordViewFilte
       displayAmount(p),
       escapeCsv(workerNames),
       escapeCsv(isWorker ? workerMode(p) : p.mode_of_payment),
-      escapeCsv(isWorker ? workerBank(p) : p.bank),
       escapeCsv(p.date_of_payment)
     ];
   });

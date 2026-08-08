@@ -49,7 +49,6 @@ const initialFormData: PaymentFormData = {
   price: '',
   total_amount: '0.00',
   mode_of_payment: '',
-  bank: '',
   date_of_payment: getTodayDateString(),
   payment_type: 'altogether',
   amount_payable: '',
@@ -68,8 +67,7 @@ function mapWorkersToForm(payment: Payment): WorkerFormRow[] {
     worker_type: (w.worker_type === 'temporary' ? 'temporary' : 'permanent') as WorkerTypeName,
     amount_payable: w.amount_payable != null ? String(w.amount_payable) : '',
     amount_paid: w.amount_paid != null ? String(w.amount_paid) : '',
-    mode_of_payment: w.mode_of_payment || '',
-    bank: w.bank || ''
+    mode_of_payment: w.mode_of_payment || ''
   }));
 }
 
@@ -217,7 +215,6 @@ export function PaymentsPage() {
             amount_payable: p.amount_payable != null ? String(p.amount_payable) : '',
             amount_paid: p.amount_paid != null ? String(p.amount_paid) : '',
             mode_of_payment: p.mode_of_payment || '',
-            bank: p.bank || '',
             date_of_payment: p.date_of_payment || getTodayDateString(),
             workers: mapWorkersToForm(p)
           });
@@ -234,7 +231,6 @@ export function PaymentsPage() {
             price: p.price || '',
             total_amount: p.total_amount || '0',
             mode_of_payment: p.mode_of_payment || '',
-            bank: p.bank || '',
             date_of_payment: p.date_of_payment || getTodayDateString(),
             workers: [createEmptyWorkerRow(true)]
           });

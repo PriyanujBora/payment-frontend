@@ -46,7 +46,6 @@ import {
   Building2,
   Check,
   CreditCard,
-  Landmark,
   Plus,
   Trash2,
   User
@@ -58,8 +57,7 @@ type WorkerFieldKey =
   | 'is_main_worker'
   | 'amount_payable'
   | 'amount_paid'
-  | 'mode_of_payment'
-  | 'bank';
+  | 'mode_of_payment';
 
 type FieldErrors = Partial<Record<string, string>>;
 
@@ -98,8 +96,7 @@ export function createEmptyWorkerRow(isMain: boolean = false): WorkerFormRow {
     worker_type: 'permanent',
     amount_payable: '',
     amount_paid: '',
-    mode_of_payment: '',
-    bank: ''
+    mode_of_payment: ''
   };
 }
 
@@ -170,11 +167,9 @@ function validateAmountPair(
   }
 }
 
-function validateModeAndBank(
+function validateMode(
   mode: string,
-  bank: string,
   modeKey: string,
-  bankKey: string,
   errors: FieldErrors
 ) {
   if (!mode.trim()) {
@@ -183,12 +178,6 @@ function validateModeAndBank(
     errors[modeKey] = MODE_TOO_LONG;
   } else if (!isValidAlphabeticValue(mode)) {
     errors[modeKey] = ALPHABETS_ONLY;
-  }
-
-  if (!bank.trim()) {
-    errors[bankKey] = 'Bank name is required';
-  } else if (!isValidAlphabeticValue(bank)) {
-    errors[bankKey] = ALPHABETS_ONLY;
   }
 }
 
@@ -228,11 +217,9 @@ function validateSupplierFields(
     errors[measureMode] = LETTERS_NOT_ALLOWED;
   }
 
-  validateModeAndBank(
+  validateMode(
     formData.mode_of_payment,
-    formData.bank,
     'mode_of_payment',
-    'bank',
     errors
   );
 
@@ -259,11 +246,9 @@ function validateWorkerFields(formData: PaymentFormData): FieldErrors {
       'amount_paid',
       errors
     );
-    validateModeAndBank(
+    validateMode(
       formData.mode_of_payment,
-      formData.bank,
       'mode_of_payment',
-      'bank',
       errors
     );
   }
@@ -299,11 +284,9 @@ function validateWorkerFields(formData: PaymentFormData): FieldErrors {
         `${prefix}.amount_paid`,
         errors
       );
-      validateModeAndBank(
+      validateMode(
         worker.mode_of_payment,
-        worker.bank,
         `${prefix}.mode_of_payment`,
-        `${prefix}.bank`,
         errors
       );
     }
@@ -398,7 +381,6 @@ export function PaymentModal({
         amount_payable: '',
         amount_paid: '',
         mode_of_payment: '',
-        bank: '',
         workers: prev.workers?.length ? prev.workers : [createEmptyWorkerRow(true)]
       }));
       return;
@@ -414,8 +396,7 @@ export function PaymentModal({
           amount_payable: '',
           amount_paid: '',
           workers: [createEmptyWorkerRow(true)],
-          mode_of_payment: '',
-          bank: ''
+          mode_of_payment: ''
         },
         'quantity'
       )
@@ -431,13 +412,11 @@ export function PaymentModal({
       amount_payable: '',
       amount_paid: '',
       mode_of_payment: '',
-      bank: '',
       workers: prev.workers.map(w => ({
         ...w,
         amount_payable: '',
         amount_paid: '',
-        mode_of_payment: '',
-        bank: ''
+        mode_of_payment: ''
       }))
     }));
   };
@@ -467,8 +446,7 @@ export function PaymentModal({
     const alphaFields: Array<keyof PaymentFormData> = [
       'supplier',
       'brand',
-      'mode_of_payment',
-      'bank'
+      'mode_of_payment'
     ];
     const numericFields: Array<keyof PaymentFormData> = [
       'price',
@@ -552,7 +530,7 @@ export function PaymentModal({
       return;
     }
 
-    if (field === 'worker_name' || field === 'mode_of_payment' || field === 'bank') {
+    if (field === 'worker_name' || field === 'mode_of_payment') {
       if (!isAlphabeticInput(value)) {
         showTransientError(key, ALPHABETS_ONLY);
         return;
@@ -1002,18 +980,6 @@ export function PaymentModal({
                                 icon={<CreditCard aria-hidden="true" />}
                                 placeholder="Cash, UPI..."
                               />
-                              <ComboboxInput
-                                id={`workerBank-${index}`}
-                                name={`workerBank-${index}`}
-                                value={worker.bank}
-                                onChange={val => handleWorkerChange(index, 'bank', val)}
-                                entityName="bank"
-                                label="Bank name"
-                                requiredMark
-                                error={fieldErrors[`${prefix}.bank`]}
-                                icon={<Landmark aria-hidden="true" />}
-                                placeholder="Enter bank name"
-                              />
                             </div>
                           ) : null}
                         </div>
@@ -1046,39 +1012,24 @@ export function PaymentModal({
                 className={
                   recordType === 'worker' && paymentType === 'separate'
                     ? 'grid grid-cols-1 gap-4'
-                    : 'grid grid-cols-1 gap-4 sm:grid-cols-3'
+                    : 'grid grid-cols-1 gap-4 sm:grid-cols-2'
                 }
               >
                 {!(recordType === 'worker' && paymentType === 'separate') ? (
-                  <>
-                    <ComboboxInput
-                      id="modeOfPayment"
-                      name="modeOfPayment"
-                      value={formData.mode_of_payment}
-                      onChange={val => handleChange('mode_of_payment', val)}
-                      entityName="mode_of_payment"
-                      label="Mode of payment"
-                      requiredMark
-                      maxLength={MODE_MAX_LENGTH}
-                      showCount
-                      error={fieldErrors.mode_of_payment}
-                      icon={<CreditCard aria-hidden="true" />}
-                      placeholder="Cash, UPI..."
-                    />
-
-                    <ComboboxInput
-                      id="bank"
-                      name="bank"
-                      value={formData.bank}
-                      onChange={val => handleChange('bank', val)}
-                      entityName="bank"
-                      label="Bank name"
-                      requiredMark
-                      error={fieldErrors.bank}
-                      icon={<Landmark aria-hidden="true" />}
-                      placeholder="Enter bank name"
-                    />
-                  </>
+                  <ComboboxInput
+                    id="modeOfPayment"
+                    name="modeOfPayment"
+                    value={formData.mode_of_payment}
+                    onChange={val => handleChange('mode_of_payment', val)}
+                    entityName="mode_of_payment"
+                    label="Mode of payment"
+                    requiredMark
+                    maxLength={MODE_MAX_LENGTH}
+                    showCount
+                    error={fieldErrors.mode_of_payment}
+                    icon={<CreditCard aria-hidden="true" />}
+                    placeholder="Cash, UPI..."
+                  />
                 ) : null}
 
                 <DatePicker

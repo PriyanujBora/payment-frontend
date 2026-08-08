@@ -81,12 +81,12 @@ const COL = {
  * and columns at left→right boundaries need minimal slack.
  */
 const COLUMN_WIDTHS: Record<RecordViewFilter, string[]> = {
-  //       ID    Type   Party  Detail Total  Mode   Bank   Date   Actions
-  all:      ['5%','10%','13%', '14%', '11%', '12%', '10%', '11%', '8%'],
-  //       ID   Supp  Item  Brand Qty   Wt    Sz    Price Total Mode  Bank  Date  Act
-  supplier: ['4%','8%','8%', '7%', '5%', '5%', '5%', '8%','9%','12%','8%','11%','8%'],
-  //       ID   Type  MnWkr Payable Paid  Mode  Bank  Date  Act
-  worker:   ['5%','10%','14%','12%','12%','12%','10%','13%','8%'],
+  //       ID    Type   Party  Detail Total  Mode   Date   Actions
+  all:      ['6%','11%','18%', '20%', '13%', '12%', '12%', '8%'],
+  //       ID   Supp  Item  Brand Qty   Wt    Sz    Price Total Mode  Date  Act
+  supplier: ['5%','10%','10%', '9%', '6%', '6%', '6%', '9%','10%','11%','10%','8%'],
+  //       ID   Type  MnWkr Payable Paid  Mode  Date  Act
+  worker:   ['6%','11%','18%','14%','14%','13%','14%','10%'],
 };
 
 const CHIP_CLASS = 'h-6 w-[5.75rem] max-w-full justify-center px-2';
@@ -168,12 +168,6 @@ function getWorkerMode(payment: Payment): string | null {
   if (payment.mode_of_payment) return payment.mode_of_payment;
   const withMode = payment.workers?.find(w => w.mode_of_payment);
   return withMode?.mode_of_payment || null;
-}
-
-function getWorkerBank(payment: Payment): string | null {
-  if (payment.bank) return payment.bank;
-  const withBank = payment.workers?.find(w => w.bank);
-  return withBank?.bank || null;
 }
 
 function ModeCell({ value }: { value: string | null }) {
@@ -333,19 +327,7 @@ function buildDateColumn(): ColumnDef<Payment> {
   };
 }
 
-function buildBankColumn(): ColumnDef<Payment> {
-  return {
-    accessorKey: 'bank',
-    header: 'Bank',
-    cell: info => (
-      <TextCell
-        value={info.getValue<string | null>()}
-        className="text-xs text-muted-foreground"
-      />
-    ),
-    meta: { className: COL.text, align: 'left' } satisfies ColumnMeta
-  };
-}
+
 
 function buildTotalColumn(): ColumnDef<Payment> {
   return {
@@ -400,18 +382,6 @@ function buildAllColumns(
         return <ModeCell value={mode} />;
       },
       meta: { className: COL.mode, align: 'center' } satisfies ColumnMeta
-    },
-    {
-      id: 'bank',
-      header: 'Bank',
-      cell: ({ row }) => {
-        const p = row.original;
-        const bank = p.record_type === 'worker' ? getWorkerBank(p) : p.bank || null;
-        return (
-          <TextCell value={bank} className="text-xs text-muted-foreground" />
-        );
-      },
-      meta: { className: COL.text, align: 'left' } satisfies ColumnMeta
     },
     buildDateColumn(),
     buildActionsColumn(onEdit, onDelete)
@@ -492,7 +462,6 @@ function buildSupplierColumns(
     },
     buildTotalColumn(),
     buildModeColumn(),
-    buildBankColumn(),
     buildDateColumn(),
     buildActionsColumn(onEdit, onDelete)
   ];
@@ -549,17 +518,6 @@ function buildWorkerColumns(
       cell: ({ row }) => <ModeCell value={getWorkerMode(row.original)} />,
       meta: { className: COL.mode, align: 'center' } satisfies ColumnMeta
     },
-    {
-      id: 'bank',
-      header: 'Bank',
-      cell: ({ row }) => (
-        <TextCell
-          value={getWorkerBank(row.original)}
-          className="text-xs text-muted-foreground"
-        />
-      ),
-      meta: { className: COL.text, align: 'left' } satisfies ColumnMeta
-    },
     buildDateColumn(),
     buildActionsColumn(onEdit, onDelete)
   ];
@@ -576,7 +534,6 @@ const SKELETON_LAYOUTS: Record<
     { className: COL.text, align: 'left' },
     { className: COL.amount, align: 'right' },
     { className: COL.mode, align: 'center' },
-    { className: COL.text, align: 'left' },
     { className: COL.text, align: 'center' },
     { className: COL.actions, align: 'right' }
   ],
@@ -591,7 +548,6 @@ const SKELETON_LAYOUTS: Record<
     { className: COL.amount, align: 'right' },
     { className: COL.amount, align: 'right' },
     { className: COL.mode, align: 'center' },
-    { className: COL.text, align: 'left' },
     { className: COL.text, align: 'center' },
     { className: COL.actions, align: 'right' }
   ],
@@ -602,7 +558,6 @@ const SKELETON_LAYOUTS: Record<
     { className: COL.amount, align: 'right' },
     { className: COL.amount, align: 'right' },
     { className: COL.mode, align: 'center' },
-    { className: COL.text, align: 'left' },
     { className: COL.text, align: 'center' },
     { className: COL.actions, align: 'right' }
   ]
@@ -611,11 +566,11 @@ const SKELETON_LAYOUTS: Record<
 function getFooterColSpans(viewFilter: RecordViewFilter): { before: number; after: number } {
   switch (viewFilter) {
     case 'all':
-      return { before: 4, after: 4 };
+      return { before: 4, after: 3 };
     case 'supplier':
-      return { before: 8, after: 4 };
+      return { before: 8, after: 3 };
     case 'worker':
-      return { before: 4, after: 4 };
+      return { before: 4, after: 3 };
   }
 }
 
