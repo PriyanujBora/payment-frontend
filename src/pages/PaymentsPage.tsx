@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   createPayment,
-  deletePayment,
   getPaymentById,
   getPaymentModes,
   getPayments,
@@ -9,7 +8,6 @@ import {
   updatePayment
 } from '@/api/payments';
 import { Header } from '@/components/layout/Header';
-import { DeleteModal } from '@/components/payments/DeleteModal';
 import { ExportModal } from '@/components/payments/ExportModal';
 import { MetricsOverview } from '@/components/payments/MetricsOverview';
 import { PaymentModal, createEmptyWorkerRow } from '@/components/payments/PaymentModal';
@@ -21,6 +19,7 @@ import { exportPaymentsToCsv } from '@/lib/exportCsv';
 import type {
   Payment,
   PaymentFormData,
+  PaymentModeOption,
   PaymentStats,
   RecordType,
   RecordViewFilter,
@@ -67,7 +66,7 @@ function mapWorkersToForm(payment: Payment): WorkerFormRow[] {
     worker_type: (w.worker_type === 'temporary' ? 'temporary' : 'permanent') as WorkerTypeName,
     amount_payable: w.amount_payable != null ? String(w.amount_payable) : '',
     amount_paid: w.amount_paid != null ? String(w.amount_paid) : '',
-    mode_of_payment: w.mode_of_payment || ''
+    mode_of_payment: w.mode_of_payment_id != null ? String(w.mode_of_payment_id) : (w.mode_of_payment || '')
   }));
 }
 
@@ -77,15 +76,19 @@ export function PaymentsPage() {
 
   const [payments, setPayments] = useState<Payment[]>([]);
   const [stats, setStats] = useState<PaymentStats | null>(null);
-  const [paymentModes, setPaymentModes] = useState<string[]>([]);
+  const [paymentModes, setPaymentModes] = useState<PaymentModeOption[]>([]);
   const [isTableLoading, setIsTableLoading] = useState(true);
   const [isStatsLoading, setIsStatsLoading] = useState(true);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMode, setSelectedMode] = useState('');
-  const [sortBy, setSortBy] = useState('id-DESC');
+  const [sortBy, setSortBy] = useState('date_of_payment-DESC');
   const [dateRange, setDateRange] = useState<DateRangeValue>({ startDate: '', endDate: '' });
   const [viewFilter, setViewFilter] = useState<RecordViewFilter>('all');
+
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+  const [totalRecords, setTotalRecords] = useState(0);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
@@ -93,12 +96,6 @@ export function PaymentsPage() {
   const [editingRecordType, setEditingRecordType] = useState<RecordType>('supplier');
   const [formData, setFormData] = useState<PaymentFormData>(initialFormData);
   const [isSaving, setIsSaving] = useState(false);
-
-  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [deletingItem, setDeletingItem] = useState('');
-  const [deletingRecordType, setDeletingRecordType] = useState<RecordType>('supplier');
-  const [isDeleting, setIsDeleting] = useState(false);
 
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [exportFilter, setExportFilter] = useState<RecordViewFilter>('all');
@@ -114,11 +111,16 @@ export function PaymentsPage() {
         order,
         recordType: viewFilter,
         startDate: dateRange.startDate || undefined,
-        endDate: dateRange.endDate || undefined
+        endDate: dateRange.endDate || undefined,
+        page,
+        limit
       });
 
       if (result.success) {
         setPayments(Array.isArray(result.data) ? result.data : []);
+        if (result.pagination) {
+          setTotalRecords(result.pagination.total);
+        }
       } else {
         setPayments([]);
         addToast(result.message || 'Failed to load payments', 'danger');
@@ -129,7 +131,7 @@ export function PaymentsPage() {
     } finally {
       setIsTableLoading(false);
     }
-  }, [searchQuery, selectedMode, sortBy, dateRange, viewFilter, addToast]);
+  }, [searchQuery, selectedMode, sortBy, dateRange, viewFilter, page, limit, addToast]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -147,7 +149,7 @@ export function PaymentsPage() {
       const result = await getPaymentModes();
       if (result.success && Array.isArray(result.data)) {
         setPaymentModes(result.data);
-        setSelectedMode(prev => (prev && !result.data.includes(prev) ? '' : prev));
+        setSelectedMode(prev => (prev && !result.data.some(m => String(m.id) === prev) ? '' : prev));
       }
     } catch {
       // Silent fail for modes filter
@@ -170,6 +172,11 @@ export function PaymentsPage() {
   useEffect(() => {
     fetchPayments();
   }, [fetchPayments]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, selectedMode, sortBy, dateRange, viewFilter]);
 
   const refreshAll = useCallback(async () => {
     await Promise.all([fetchPayments(), fetchStats(), fetchPaymentModes()]);
@@ -207,6 +214,8 @@ export function PaymentsPage() {
         setEditingId(id);
         setEditingRecordType(recordType);
 
+        const modeVal = p.mode_of_payment_id != null ? String(p.mode_of_payment_id) : (p.mode_of_payment || '');
+
         if (recordType === 'worker') {
           setFormData({
             ...initialFormData,
@@ -214,7 +223,7 @@ export function PaymentsPage() {
             payment_type: p.payment_type === 'separate' ? 'separate' : 'altogether',
             amount_payable: p.amount_payable != null ? String(p.amount_payable) : '',
             amount_paid: p.amount_paid != null ? String(p.amount_paid) : '',
-            mode_of_payment: p.mode_of_payment || '',
+            mode_of_payment: modeVal,
             date_of_payment: p.date_of_payment || getTodayDateString(),
             workers: mapWorkersToForm(p)
           });
@@ -230,7 +239,7 @@ export function PaymentsPage() {
             size: p.size || '',
             price: p.price || '',
             total_amount: p.total_amount || '0',
-            mode_of_payment: p.mode_of_payment || '',
+            mode_of_payment: modeVal,
             date_of_payment: p.date_of_payment || getTodayDateString(),
             workers: [createEmptyWorkerRow(true)]
           });
@@ -269,44 +278,13 @@ export function PaymentsPage() {
     }
   };
 
-  const handleOpenDeleteModal = (
-    id: number,
-    item: string,
-    recordType: RecordType
-  ) => {
-    setDeletingId(id);
-    setDeletingItem(item);
-    setDeletingRecordType(recordType);
-    setIsDeleteOpen(true);
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!deletingId) return;
-    setIsDeleting(true);
-
-    try {
-      const result = await deletePayment(deletingId, deletingRecordType);
-      if (result.success) {
-        setIsDeleteOpen(false);
-        addToast('Record deleted', 'success');
-        refreshAll();
-      } else {
-        addToast(result.message || 'Delete failed', 'danger');
-      }
-    } catch {
-      addToast('Network error while deleting', 'danger');
-    } finally {
-      setIsDeleting(false);
-      setDeletingId(null);
-    }
-  };
-
   const handleResetFilters = () => {
     setSearchQuery('');
     setSelectedMode('');
-    setSortBy('id-DESC');
+    setSortBy('date_of_payment-DESC');
     setDateRange({ startDate: '', endDate: '' });
     setViewFilter('all');
+    setPage(1);
   };
 
   const handleOpenExport = () => {
@@ -324,7 +302,8 @@ export function PaymentsPage() {
         order,
         recordType: exportFilter,
         startDate: dateRange.startDate || undefined,
-        endDate: dateRange.endDate || undefined
+        endDate: dateRange.endDate || undefined,
+        limit: 0 // fetch all matching records for export
       });
 
       const rows = result.success && Array.isArray(result.data) ? result.data : [];
@@ -347,7 +326,7 @@ export function PaymentsPage() {
       selectedMode ||
       dateRange.startDate ||
       dateRange.endDate ||
-      sortBy !== 'id-DESC' ||
+      sortBy !== 'date_of_payment-DESC' ||
       viewFilter !== 'all'
   );
 
@@ -385,7 +364,12 @@ export function PaymentsPage() {
             isLoading={isTableLoading}
             viewFilter={viewFilter}
             onEdit={handleOpenEditModal}
-            onDelete={handleOpenDeleteModal}
+            page={page}
+            pageSize={limit}
+            totalRecords={totalRecords}
+            sortBy={sortBy}
+            onPageChange={setPage}
+            onPageSizeChange={setLimit}
           />
         </div>
       </main>
@@ -399,15 +383,7 @@ export function PaymentsPage() {
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleFormSubmit}
         isSaving={isSaving}
-      />
-
-      <DeleteModal
-        isOpen={isDeleteOpen}
-        deletingId={deletingId}
-        deletingItem={deletingItem}
-        onClose={() => setIsDeleteOpen(false)}
-        onConfirm={handleConfirmDelete}
-        isDeleting={isDeleting}
+        paymentModes={paymentModes}
       />
 
       <ExportModal
@@ -417,7 +393,6 @@ export function PaymentsPage() {
         onClose={() => setIsExportOpen(false)}
         onConfirm={handleConfirmExport}
       />
-
     </div>
   );
 }

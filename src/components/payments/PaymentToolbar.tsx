@@ -10,7 +10,7 @@ import {
   TooltipContent,
   TooltipTrigger
 } from '@/components/ui/tooltip';
-import type { RecordViewFilter } from '@/types/payment';
+import type { PaymentModeOption, RecordViewFilter } from '@/types/payment';
 import { Download, RotateCcw, Search } from 'lucide-react';
 
 interface PaymentToolbarProps {
@@ -18,7 +18,7 @@ interface PaymentToolbarProps {
   selectedMode: string;
   sortBy: string;
   dateRange: DateRangeValue;
-  modeOptions: string[];
+  modeOptions: PaymentModeOption[];
   viewFilter: RecordViewFilter;
   hasActiveFilters: boolean;
   onSearchChange: (value: string) => void;
@@ -48,28 +48,28 @@ export const PaymentToolbar = memo(function PaymentToolbar({
 }: PaymentToolbarProps) {
   const modeSelectOptions = [
     { value: 'all-modes', label: 'All modes' },
-    ...modeOptions.map(mode => ({ value: mode, label: mode }))
+    ...modeOptions.map(mode => ({ value: String(mode.id), label: mode.name }))
   ];
 
   return (
     <div className="mt-6 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
       <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:flex-wrap md:items-center">
         <div className="relative w-full md:w-[200px] md:shrink-0">
-          <Search className="absolute top-2 left-2.5 text-muted-foreground" aria-hidden="true" />
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
             type="text"
             value={searchQuery}
             onChange={e => onSearchChange(e.target.value)}
             placeholder="Search records..."
             autoComplete="off"
-            className="pl-8"
+            className="pl-9"
           />
         </div>
 
         <DateRangePicker
           value={dateRange}
           onChange={onDateRangeChange}
-          placeholder="Filter by date range"
+          placeholder="Filter by payment date"
           className="w-full md:w-auto md:shrink-0"
         />
 
@@ -87,10 +87,10 @@ export const PaymentToolbar = memo(function PaymentToolbar({
           ariaLabel="Sort records"
           className="w-full md:w-[11rem]"
           options={[
-            { value: 'id-DESC', label: 'Newest first' },
-            { value: 'id-ASC', label: 'Oldest first' },
-            { value: 'date_of_payment-DESC', label: 'Payment date (Newest)' },
-            { value: 'date_of_payment-ASC', label: 'Payment date (Oldest)' },
+            { value: 'date_of_payment-DESC', label: 'Newest first' },
+            { value: 'date_of_payment-ASC', label: 'Oldest first' },
+            { value: 'id-DESC', label: 'S. No (High to Low)' },
+            { value: 'id-ASC', label: 'S. No (Low to High)' },
             { value: 'total_amount-DESC', label: 'Highest amount' },
             { value: 'total_amount-ASC', label: 'Lowest amount' },
             { value: 'supplier-ASC', label: 'Supplier A-Z' }
@@ -123,7 +123,7 @@ export const PaymentToolbar = memo(function PaymentToolbar({
           </TabsList>
         </Tabs>
 
-        <Separator orientation="vertical" className="hidden h-5 sm:block" />
+        <div className="hidden h-4 w-px shrink-0 bg-border sm:block mx-1" aria-hidden="true" />
 
         <Tooltip>
           <TooltipTrigger asChild>

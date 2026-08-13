@@ -3,7 +3,7 @@ import {
   ColumnDef,
   flexRender,
   getCoreRowModel,
-  getPaginationRowModel,
+  SortingState,
   useReactTable
 } from '@tanstack/react-table';
 import { Payment, RecordViewFilter } from '@/types/payment';
@@ -35,7 +35,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { FilterSelect } from '@/components/ui/filter-select';
 import { cn, formatNumber } from '@/lib/utils';
-import { Pencil, Trash2, Inbox } from 'lucide-react';
+import { Pencil, Inbox } from 'lucide-react';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '10', label: '10 / page' },
@@ -135,7 +135,12 @@ interface PaymentTableProps {
   isLoading: boolean;
   viewFilter: RecordViewFilter;
   onEdit: (id: number, recordType: 'supplier' | 'worker') => void;
-  onDelete: (id: number, label: string, recordType: 'supplier' | 'worker') => void;
+  page?: number;
+  pageSize?: number;
+  totalRecords?: number;
+  sortBy?: string;
+  onPageChange?: (page: number) => void;
+  onPageSizeChange?: (size: number) => void;
 }
 
 type ColumnMeta = {
@@ -225,14 +230,11 @@ function TextCell({
 
 function ActionsCell({
   payment,
-  onEdit,
-  onDelete
+  onEdit
 }: {
   payment: Payment;
   onEdit: (id: number, recordType: 'supplier' | 'worker') => void;
-  onDelete: (id: number, label: string, recordType: 'supplier' | 'worker') => void;
 }) {
-  const deleteLabel = getDeleteLabel(payment);
   const recordType = payment.record_type === 'worker' ? 'worker' : 'supplier';
   return (
     <div className="inline-flex items-center gap-0.5">
@@ -250,44 +252,44 @@ function ActionsCell({
         </TooltipTrigger>
         <TooltipContent side="top">Edit #{payment.id}</TooltipContent>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-            onClick={() => onDelete(payment.id, deleteLabel, recordType)}
-            aria-label={`Delete payment ${payment.id}`}
-          >
-            <Trash2 className="size-3.5" aria-hidden="true" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="top">Delete #{payment.id}</TooltipContent>
-      </Tooltip>
     </div>
   );
 }
 
-function buildIdColumn(): ColumnDef<Payment> {
+function buildSNoColumn(
+  page: number = 1,
+  pageSize: number = 25,
+  totalRecords: number = 0,
+  sortBy: string = 'id-DESC'
+): ColumnDef<Payment> {
+  const isAscending = sortBy.endsWith('-ASC');
   return {
-    accessorKey: 'id',
-    header: 'ID',
-    cell: info => (
-      <span className="tabular-nums font-medium text-muted-foreground">#{info.getValue<number>()}</span>
-    ),
+    id: 's_no',
+    header: 'S. No.',
+    cell: ({ row }) => {
+      let sNo: number;
+      if (isAscending || totalRecords === 0) {
+        sNo = (page - 1) * pageSize + row.index + 1;
+      } else {
+        sNo = totalRecords - ((page - 1) * pageSize + row.index);
+        if (sNo < 1) sNo = row.index + 1;
+      }
+      return (
+        <span className="tabular-nums font-medium text-muted-foreground">#{sNo}</span>
+      );
+    },
     meta: { className: COL.id, align: 'left' } satisfies ColumnMeta
   };
 }
 
 function buildActionsColumn(
-  onEdit: (id: number, recordType: 'supplier' | 'worker') => void,
-  onDelete: (id: number, label: string, recordType: 'supplier' | 'worker') => void
+  onEdit: (id: number, recordType: 'supplier' | 'worker') => void
 ): ColumnDef<Payment> {
   return {
     id: 'actions',
     header: 'Actions',
     cell: ({ row }) => (
-      <ActionsCell payment={row.original} onEdit={onEdit} onDelete={onDelete} />
+      <ActionsCell payment={row.original} onEdit={onEdit} />
     ),
     meta: { className: COL.actions, align: 'right' } satisfies ColumnMeta
   };
@@ -317,7 +319,7 @@ function formatDateDisplay(ymdStr: string | null | undefined): string {
 function buildDateColumn(): ColumnDef<Payment> {
   return {
     accessorKey: 'date_of_payment',
-    header: 'Date',
+    header: 'Payment Date',
     cell: info => (
       <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
         {formatDateDisplay(info.getValue<string | null>())}
@@ -326,8 +328,6 @@ function buildDateColumn(): ColumnDef<Payment> {
     meta: { className: COL.text, align: 'center' } satisfies ColumnMeta
   };
 }
-
-
 
 function buildTotalColumn(): ColumnDef<Payment> {
   return {
@@ -340,10 +340,13 @@ function buildTotalColumn(): ColumnDef<Payment> {
 
 function buildAllColumns(
   onEdit: (id: number, recordType: 'supplier' | 'worker') => void,
-  onDelete: (id: number, label: string, recordType: 'supplier' | 'worker') => void
+  page: number = 1,
+  pageSize: number = 25,
+  totalRecords: number = 0,
+  sortBy: string = 'id-DESC'
 ): ColumnDef<Payment>[] {
   return [
-    buildIdColumn(),
+    buildSNoColumn(page, pageSize, totalRecords, sortBy),
     {
       accessorKey: 'record_type',
       header: 'Type',
@@ -375,25 +378,23 @@ function buildAllColumns(
     {
       id: 'mode_of_payment',
       header: 'Mode',
-      cell: ({ row }) => {
-        const p = row.original;
-        const mode =
-          p.record_type === 'worker' ? getWorkerMode(p) : p.mode_of_payment || null;
-        return <ModeCell value={mode} />;
-      },
+      cell: ({ row }) => <ModeCell value={getWorkerMode(row.original)} />,
       meta: { className: COL.mode, align: 'center' } satisfies ColumnMeta
     },
     buildDateColumn(),
-    buildActionsColumn(onEdit, onDelete)
+    buildActionsColumn(onEdit)
   ];
 }
 
 function buildSupplierColumns(
   onEdit: (id: number, recordType: 'supplier' | 'worker') => void,
-  onDelete: (id: number, label: string, recordType: 'supplier' | 'worker') => void
+  page: number = 1,
+  pageSize: number = 25,
+  totalRecords: number = 0,
+  sortBy: string = 'id-DESC'
 ): ColumnDef<Payment>[] {
   return [
-    buildIdColumn(),
+    buildSNoColumn(page, pageSize, totalRecords, sortBy),
     {
       accessorKey: 'supplier',
       header: 'Supplier',
@@ -408,28 +409,21 @@ function buildSupplierColumns(
     {
       accessorKey: 'item',
       header: 'Item',
-      cell: info => (
-        <TextCell
-          value={info.getValue<string>()}
-          className="font-semibold text-foreground"
-        />
-      ),
+      cell: info => <TextCell value={info.getValue<string | null>()} />,
       meta: { className: COL.text, align: 'left' } satisfies ColumnMeta
     },
     {
       accessorKey: 'brand',
       header: 'Brand',
-      cell: info => (
-        <TextCell value={info.getValue<string | null>()} className="text-muted-foreground" />
-      ),
+      cell: info => <TextCell value={info.getValue<string | null>()} />,
       meta: { className: COL.text, align: 'left' } satisfies ColumnMeta
     },
     {
       accessorKey: 'quantity',
       header: 'Qty',
       cell: info => (
-        <span className="whitespace-nowrap tabular-nums font-medium text-foreground">
-          {info.getValue<string>() || '0'}
+        <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+          {info.getValue<string | null>() || '-'}
         </span>
       ),
       meta: { className: COL.qty, align: 'right' } satisfies ColumnMeta
@@ -463,16 +457,19 @@ function buildSupplierColumns(
     buildTotalColumn(),
     buildModeColumn(),
     buildDateColumn(),
-    buildActionsColumn(onEdit, onDelete)
+    buildActionsColumn(onEdit)
   ];
 }
 
 function buildWorkerColumns(
   onEdit: (id: number, recordType: 'supplier' | 'worker') => void,
-  onDelete: (id: number, label: string, recordType: 'supplier' | 'worker') => void
+  page: number = 1,
+  pageSize: number = 25,
+  totalRecords: number = 0,
+  sortBy: string = 'id-DESC'
 ): ColumnDef<Payment>[] {
   return [
-    buildIdColumn(),
+    buildSNoColumn(page, pageSize, totalRecords, sortBy),
     {
       accessorKey: 'payment_type',
       header: 'Type',
@@ -519,7 +516,7 @@ function buildWorkerColumns(
       meta: { className: COL.mode, align: 'center' } satisfies ColumnMeta
     },
     buildDateColumn(),
-    buildActionsColumn(onEdit, onDelete)
+    buildActionsColumn(onEdit)
   ];
 }
 
@@ -579,16 +576,16 @@ export const PaymentTable = React.memo(function PaymentTable({
   isLoading,
   viewFilter,
   onEdit,
-  onDelete
+  page = 1,
+  pageSize = 25,
+  totalRecords = 0,
+  sortBy = 'id-DESC',
+  onPageChange,
+  onPageSizeChange
 }: PaymentTableProps) {
-  const [pagination, setPagination] = useState({
-    pageIndex: 0,
-    pageSize: 10
-  });
+  const [sorting, setSorting] = useState<SortingState>([]);
+
   const skeletonCount = useMemo(() => {
-    if (payments.length > 0) {
-      return Math.min(payments.length, 10);
-    }
     if (typeof window !== 'undefined') {
       const saved = sessionStorage.getItem('last_payment_count');
       if (saved) {
@@ -597,7 +594,7 @@ export const PaymentTable = React.memo(function PaymentTable({
       }
     }
     return 5;
-  }, [payments.length]);
+  }, []);
 
   useEffect(() => {
     if (!isLoading && payments.length > 0) {
@@ -608,23 +605,30 @@ export const PaymentTable = React.memo(function PaymentTable({
   const columns = useMemo<ColumnDef<Payment>[]>(() => {
     switch (viewFilter) {
       case 'supplier':
-        return buildSupplierColumns(onEdit, onDelete);
+        return buildSupplierColumns(onEdit, page, pageSize, totalRecords, sortBy);
       case 'worker':
-        return buildWorkerColumns(onEdit, onDelete);
+        return buildWorkerColumns(onEdit, page, pageSize, totalRecords, sortBy);
       default:
-        return buildAllColumns(onEdit, onDelete);
+        return buildAllColumns(onEdit, page, pageSize, totalRecords, sortBy);
     }
-  }, [viewFilter, onEdit, onDelete]);
+  }, [viewFilter, onEdit, page, pageSize, totalRecords, sortBy]);
+
+  const pageCount = Math.max(1, Math.ceil(totalRecords / pageSize));
 
   const table = useReactTable({
     data: payments,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: true,
+    pageCount,
     state: {
-      pagination
+      sorting,
+      pagination: {
+        pageIndex: Math.max(0, page - 1),
+        pageSize
+      }
     },
-    onPaginationChange: setPagination
+    onSortingChange: setSorting
   });
 
   const grandTotal = payments.reduce(
@@ -687,11 +691,8 @@ export const PaymentTable = React.memo(function PaymentTable({
     );
   }
 
-  const pageCount = Math.max(1, table.getPageCount());
-  const pageIndex = table.getState().pagination.pageIndex;
-  const pageSize = table.getState().pagination.pageSize;
-  const startRecord = payments.length > 0 ? pageIndex * pageSize + 1 : 0;
-  const endRecord = Math.min((pageIndex + 1) * pageSize, payments.length);
+  const startRecord = totalRecords > 0 ? (page - 1) * pageSize + 1 : 0;
+  const endRecord = Math.min(page * pageSize, totalRecords);
 
   return (
     <div className="flex flex-col">
@@ -755,17 +756,15 @@ export const PaymentTable = React.memo(function PaymentTable({
           <p className="text-xs whitespace-nowrap text-muted-foreground">
             Showing <span className="font-semibold text-foreground">{startRecord}</span> to{' '}
             <span className="font-semibold text-foreground">{endRecord}</span> of{' '}
-            <span className="font-semibold text-foreground">{payments.length}</span> records
+            <span className="font-semibold text-foreground">{totalRecords}</span> records
           </p>
 
           <FilterSelect
             value={String(pageSize)}
             onValueChange={value => {
               const nextSize = Number(value);
-              setPagination({
-                pageIndex: 0,
-                pageSize: nextSize
-              });
+              if (onPageSizeChange) onPageSizeChange(nextSize);
+              if (onPageChange) onPageChange(1);
             }}
             ariaLabel="Rows per page"
             options={PAGE_SIZE_OPTIONS}
@@ -777,16 +776,20 @@ export const PaymentTable = React.memo(function PaymentTable({
           <PaginationContent>
             <PaginationItem>
               <PaginationPrevious
-                onClick={() => table.previousPage()}
-                disabled={!table.getCanPreviousPage()}
+                onClick={() => {
+                  if (onPageChange && page > 1) onPageChange(page - 1);
+                }}
+                disabled={page <= 1}
               />
             </PaginationItem>
 
             {Array.from({ length: pageCount }, (_, idx) => (
               <PaginationItem key={idx}>
                 <PaginationLink
-                  isActive={pageIndex === idx}
-                  onClick={() => table.setPageIndex(idx)}
+                  isActive={page === idx + 1}
+                  onClick={() => {
+                    if (onPageChange) onPageChange(idx + 1);
+                  }}
                 >
                   {idx + 1}
                 </PaginationLink>
@@ -795,8 +798,10 @@ export const PaymentTable = React.memo(function PaymentTable({
 
             <PaginationItem>
               <PaginationNext
-                onClick={() => table.nextPage()}
-                disabled={!table.getCanNextPage()}
+                onClick={() => {
+                  if (onPageChange && page < pageCount) onPageChange(page + 1);
+                }}
+                disabled={page >= pageCount}
               />
             </PaginationItem>
           </PaginationContent>

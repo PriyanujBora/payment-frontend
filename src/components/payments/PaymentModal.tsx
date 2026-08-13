@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type {
   MainWorkerFlag,
   PaymentFormData,
+  PaymentModeOption,
   PaymentType,
   RecordType,
   WorkerFormRow,
@@ -48,7 +49,9 @@ import {
   CreditCard,
   Plus,
   Trash2,
-  User
+  User,
+  Users,
+  Wrench
 } from 'lucide-react';
 
 type WorkerFieldKey =
@@ -71,12 +74,20 @@ const MODE_MAX_LENGTH = 10;
 const MODE_TOO_LONG = `Max ${MODE_MAX_LENGTH} characters allowed`;
 const PAID_EXCEEDS_PAYABLE = 'Amount paid cannot be higher than amount payable';
 
+const SUPPLIER_MAX_LENGTH = 100;
+const ITEM_MAX_LENGTH = 100;
+const BRAND_MAX_LENGTH = 100;
+const WORKER_NAME_MAX_LENGTH = 100;
+
+const WORKER_PAYMENT_TYPE_OPTIONS: { value: PaymentType; label: string }[] = [
+  { value: 'altogether', label: 'Pay Altogether' },
+  { value: 'separate', label: 'Pay Separately' }
+];
+
 const RECORD_TYPE_OPTIONS: { value: RecordType; label: string }[] = [
   { value: 'supplier', label: 'Supplier' },
   { value: 'worker', label: 'Worker' }
 ];
-
-
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -87,6 +98,7 @@ interface PaymentModalProps {
   onClose: () => void;
   onSubmit: (e: React.FormEvent) => void;
   isSaving: boolean;
+  paymentModes?: PaymentModeOption[];
 }
 
 export function createEmptyWorkerRow(isMain: boolean = false): WorkerFormRow {
@@ -172,12 +184,8 @@ function validateMode(
   modeKey: string,
   errors: FieldErrors
 ) {
-  if (!mode.trim()) {
+  if (!mode || !mode.trim()) {
     errors[modeKey] = 'Mode of payment is required';
-  } else if (mode.trim().length > MODE_MAX_LENGTH) {
-    errors[modeKey] = MODE_TOO_LONG;
-  } else if (!isValidAlphabeticValue(mode)) {
-    errors[modeKey] = ALPHABETS_ONLY;
   }
 }
 
@@ -187,18 +195,9 @@ function validateSupplierFields(
 ): FieldErrors {
   const errors: FieldErrors = {};
 
-  if (!formData.item.trim()) errors.item = 'Item name is required';
-  if (!formData.supplier.trim()) {
-    errors.supplier = 'Supplier is required';
-  } else if (!isValidAlphabeticValue(formData.supplier)) {
-    errors.supplier = ALPHABETS_ONLY;
-  }
-  if (!formData.brand.trim()) {
-    errors.brand = 'Brand is required';
-  } else if (!isValidAlphabeticValue(formData.brand)) {
-    errors.brand = ALPHABETS_ONLY;
-  }
-  if (!formData.size.trim()) errors.size = 'Size is required';
+  if (!formData.item.trim()) errors.item = 'Item Name is required';
+  if (!formData.supplier.trim()) errors.supplier = 'Supplier Name is required';
+  if (!formData.brand.trim()) errors.brand = 'Brand Name is required';
 
   if (!formData.price.trim()) {
     errors.price = 'Unit price is required';
@@ -303,7 +302,8 @@ export function PaymentModal({
   setFormData,
   onClose,
   onSubmit,
-  isSaving
+  isSaving,
+  paymentModes = []
 }: PaymentModalProps) {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const letterErrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -445,8 +445,7 @@ export function PaymentModal({
   const handleChange = (field: keyof PaymentFormData, value: string) => {
     const alphaFields: Array<keyof PaymentFormData> = [
       'supplier',
-      'brand',
-      'mode_of_payment'
+      'brand'
     ];
     const numericFields: Array<keyof PaymentFormData> = [
       'price',
@@ -469,14 +468,10 @@ export function PaymentModal({
         showTransientError(String(field), ALPHABETS_ONLY);
         return;
       }
-      if (field === 'mode_of_payment' && value.length > MODE_MAX_LENGTH) {
-        showTransientError('mode_of_payment', MODE_TOO_LONG);
-        return;
-      }
       clearFieldError(String(field));
     }
 
-    if (field === 'item' || field === 'size' || field === 'date_of_payment') {
+    if (field === 'item' || field === 'size' || field === 'date_of_payment' || field === 'mode_of_payment') {
       clearFieldError(String(field));
     }
 
@@ -530,17 +525,26 @@ export function PaymentModal({
       return;
     }
 
-    if (field === 'worker_name' || field === 'mode_of_payment') {
+    if (field === 'worker_name') {
       if (!isAlphabeticInput(value)) {
         showTransientError(key, ALPHABETS_ONLY);
         return;
       }
-      if (field === 'mode_of_payment' && value.length > MODE_MAX_LENGTH) {
-        showTransientError(key, MODE_TOO_LONG);
-        return;
-      }
       clearFieldError(key);
       updateWorker(index, { [field]: value });
+      return;
+    }
+
+    if (field === 'is_main_worker') {
+      if (value === 'No' && formData.workers[index]?.is_main_worker === 'Yes') {
+        const mainCount = formData.workers.filter(w => w.is_main_worker === 'Yes').length;
+        if (mainCount <= 1) {
+          showTransientError(key, 'At least one worker needs to be the main worker');
+          return;
+        }
+      }
+      clearFieldError(key);
+      updateWorker(index, { is_main_worker: value as MainWorkerFlag });
       return;
     }
 
@@ -621,7 +625,7 @@ export function PaymentModal({
             {recordType === 'worker' ? (
               <Field orientation="horizontal" className="justify-between">
                 <FieldLabel className="text-sm font-medium text-muted-foreground">
-                  Pay workers
+                  Pay Workers
                 </FieldLabel>
                 <Select
                   value={paymentType}
@@ -632,7 +636,7 @@ export function PaymentModal({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      <SelectItem value="altogether">All together</SelectItem>
+                      <SelectItem value="altogether">Altogether</SelectItem>
                       <SelectItem value="separate">Separately</SelectItem>
                     </SelectGroup>
                   </SelectContent>
@@ -643,223 +647,228 @@ export function PaymentModal({
 
           <ScrollArea className="h-full min-h-0">
             <div className="flex flex-col gap-3 px-5 py-3">
-            {recordType === 'supplier' ? (
-              <>
-                <FieldSet>
-                  <FieldLegend className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                    Item details
-                  </FieldLegend>
-                  <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    <ComboboxInput
-                      id="item"
-                      name="item"
-                      value={formData.item}
-                      onChange={val => handleChange('item', val)}
-                      entityName="item"
-                      label="Item name"
-                      requiredMark
-                      error={fieldErrors.item}
-                      icon={<Box aria-hidden="true" />}
-                      placeholder="Enter item name"
-                    />
-
-                    <ComboboxInput
-                      id="supplier"
-                      name="supplier"
-                      value={formData.supplier}
-                      onChange={val => handleChange('supplier', val)}
-                      entityName="supplier"
-                      label="Supplier"
-                      requiredMark
-                      error={fieldErrors.supplier}
-                      icon={<Building2 aria-hidden="true" />}
-                      placeholder="Enter supplier name"
-                    />
-
-                    <ComboboxInput
-                      id="brand"
-                      name="brand"
-                      value={formData.brand}
-                      onChange={val => handleChange('brand', val)}
-                      entityName="brand"
-                      label="Brand"
-                      requiredMark
-                      error={fieldErrors.brand}
-                      placeholder="Enter brand name"
-                    />
-
-                    <Field>
-                      <FieldLabel>Measure by</FieldLabel>
-                      <Select
-                        value={measureMode}
-                        onValueChange={val => handleMeasureModeChange(val as MeasureMode)}
-                      >
-                        <SelectTrigger id="measureMode" className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            <SelectItem value="quantity">Quantity</SelectItem>
-                            <SelectItem value="weight">Weight</SelectItem>
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-
-                    {measureMode === 'quantity' ? (
-                      <FormInput
-                        id="quantity"
-                        name="quantity"
-                        inputMode="decimal"
-                        value={formData.quantity}
-                        onChange={e => handleChange('quantity', e.target.value)}
-                        label="Quantity"
-                        requiredMark
-                        error={activeMeasureError}
-                        autoComplete="off"
-                        placeholder="Enter quantity"
-                        className="text-right tabular-nums"
-                      />
-                    ) : (
-                      <FormInput
-                        id="weight"
-                        name="weight"
-                        inputMode="decimal"
-                        value={formData.weight}
-                        onChange={e => handleChange('weight', e.target.value)}
-                        label="Weight"
-                        requiredMark
-                        error={activeMeasureError}
-                        autoComplete="off"
-                        placeholder="Enter weight"
-                        className="text-right tabular-nums"
-                      />
-                    )}
-
-                    <FormInput
-                      id="size"
-                      name="size"
-                      value={formData.size}
-                      onChange={e => handleChange('size', e.target.value)}
-                      label="Size"
-                      requiredMark
-                      error={fieldErrors.size}
-                      autoComplete="off"
-                      placeholder="Enter size"
-                    />
-                  </FieldGroup>
-                </FieldSet>
-
-                <Separator />
-
-                <FieldSet>
-                  <FieldLegend className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                    Pricing
-                  </FieldLegend>
-                  <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <FormInput
-                      type="number"
-                      step="any"
-                      min="0"
-                      id="price"
-                      name="price"
-                      value={formData.price}
-                      onChange={e => handleChange('price', e.target.value)}
-                      label="Unit price"
-                      requiredMark
-                      error={fieldErrors.price}
-                      prefix="₹"
-                      autoComplete="off"
-                      placeholder="0.00"
-                      className="text-right tabular-nums"
-                    />
-
-                    <FormInput
-                      id="totalAmount"
-                      name="totalAmount"
-                      value={formData.total_amount}
-                      readOnly
-                      label="Total amount"
-                      prefix="₹"
-                      suffix={
-                        <Badge variant="secondary" className="text-[10px] font-normal">
-                          auto
-                        </Badge>
-                      }
-                      className="text-right font-medium tabular-nums"
-                    />
-                  </FieldGroup>
-                </FieldSet>
-              </>
-            ) : (
-              <>
-                {paymentType === 'altogether' ? (
+              {recordType === 'supplier' ? (
+                <>
                   <FieldSet>
                     <FieldLegend className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                      Payment amounts
+                      Supplier & Item Details
                     </FieldLegend>
-                    <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <FormInput
-                        id="amountPayable"
-                        name="amountPayable"
-                        inputMode="decimal"
-                        value={formData.amount_payable}
-                        onChange={e => handleChange('amount_payable', e.target.value)}
-                        label="Amount payable"
+                    <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                      <ComboboxInput
+                        id="supplier"
+                        name="supplier"
+                        value={formData.supplier}
+                        onChange={val => handleChange('supplier', val)}
+                        entityName="supplier"
+                        label="Supplier Name"
                         requiredMark
-                        error={fieldErrors.amount_payable}
+                        error={fieldErrors.supplier}
+                        placeholder="Enter supplier..."
+                      />
+
+                      <ComboboxInput
+                        id="item"
+                        name="item"
+                        value={formData.item}
+                        onChange={val => handleChange('item', val)}
+                        entityName="item"
+                        label="Item Name"
+                        requiredMark
+                        error={fieldErrors.item}
+                        placeholder="Enter item..."
+                      />
+
+                      <ComboboxInput
+                        id="brand"
+                        name="brand"
+                        value={formData.brand}
+                        onChange={val => handleChange('brand', val)}
+                        entityName="brand"
+                        label="Brand Name"
+                        requiredMark
+                        error={fieldErrors.brand}
+                        placeholder="Enter brand..."
+                      />
+
+                      <FormInput
+                        id="size"
+                        name="size"
+                        type="text"
+                        value={formData.size}
+                        onChange={e => handleChange('size', e.target.value)}
+                        label="Size (Optional)"
+                        error={fieldErrors.size}
+                        placeholder="e.g. XL, 10mm"
+                      />
+                    </FieldGroup>
+
+                    <FieldGroup className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      <FormInput
+                        id="price"
+                        name="price"
+                        type="text"
+                        inputMode="decimal"
+                        value={formData.price}
+                        onChange={e => handleChange('price', e.target.value)}
+                        label="Price"
+                        requiredMark
+                        error={fieldErrors.price}
                         prefix="₹"
                         placeholder="0.00"
                         className="text-right tabular-nums"
                       />
+
+                      <div>
+                        {measureMode === 'quantity' ? (
+                          <FormInput
+                            id="quantity"
+                            name="quantity"
+                            type="text"
+                            inputMode="decimal"
+                            value={formData.quantity}
+                            onChange={e => handleChange('quantity', e.target.value)}
+                            label="Quantity"
+                            requiredMark
+                            error={fieldErrors.quantity}
+                            placeholder="e.g. 10"
+                            className="text-right tabular-nums"
+                          />
+                        ) : (
+                          <FormInput
+                            id="weight"
+                            name="weight"
+                            type="text"
+                            inputMode="decimal"
+                            value={formData.weight}
+                            onChange={e => handleChange('weight', e.target.value)}
+                            label="Weight"
+                            requiredMark
+                            error={fieldErrors.weight}
+                            placeholder="e.g. 2.5 kg"
+                            className="text-right tabular-nums"
+                          />
+                        )}
+                      </div>
+
                       <FormInput
-                        id="amountPaid"
-                        name="amountPaid"
-                        inputMode="decimal"
-                        value={formData.amount_paid}
-                        onChange={e => handleChange('amount_paid', e.target.value)}
-                        label="Amount paid"
-                        requiredMark
-                        error={fieldErrors.amount_paid}
+                        id="total_amount"
+                        name="total_amount"
+                        type="text"
+                        value={formData.total_amount}
+                        label={measureMode === 'quantity' ? 'Total Amount (Price × Qty)' : 'Total Amount (Price × Weight)'}
+                        readOnly
                         prefix="₹"
-                        placeholder="0.00"
-                        className="text-right tabular-nums"
+                        suffix={
+                          <Badge variant="secondary" className="text-[10px] font-normal">
+                            Auto
+                          </Badge>
+                        }
+                        className="bg-muted font-bold text-foreground text-right tabular-nums"
                       />
                     </FieldGroup>
                   </FieldSet>
-                ) : null}
+                </>
+              ) : (
+                <>
 
-                <Separator />
+                  {paymentType === 'altogether' && (
+                    <FieldSet>
+                      <FieldLegend className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                        Altogether Amounts
+                      </FieldLegend>
+                      <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                        <FormInput
+                          id="header_amount_payable"
+                          name="header_amount_payable"
+                          type="text"
+                          inputMode="decimal"
+                          value={formData.amount_payable}
+                          onChange={e => handleChange('amount_payable', e.target.value)}
+                          label="Amount Payable"
+                          requiredMark
+                          error={fieldErrors.amount_payable}
+                          prefix="₹"
+                          placeholder="0.00"
+                          className="text-right tabular-nums"
+                        />
 
-                <FieldSet>
-                  <FieldLegend className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                    Workers
-                  </FieldLegend>
-                  {fieldErrors.workers ? <FieldError>{fieldErrors.workers}</FieldError> : null}
+                        <FormInput
+                          id="header_amount_paid"
+                          name="header_amount_paid"
+                          type="text"
+                          inputMode="decimal"
+                          value={formData.amount_paid}
+                          onChange={e => handleChange('amount_paid', e.target.value)}
+                          label="Amount Paid"
+                          requiredMark
+                          error={fieldErrors.amount_paid}
+                          prefix="₹"
+                          placeholder="0.00"
+                          className="text-right tabular-nums"
+                        />
 
-                  <div className="flex flex-col gap-4">
-                    {formData.workers.map((worker, index) => {
-                      const prefix = `workers.${index}`;
-                      return (
-                        <div
-                          key={index}
-                          className="rounded-lg border border-border bg-card/40 p-3"
-                        >
-                          <div className="mb-2 flex items-center justify-between gap-2">
-                            <p className="text-xs font-medium text-muted-foreground">
-                              Worker {index + 1}
-                            </p>
-                            {formData.workers.length > 1 ? (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveWorker(index)}
-                                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                              >
-                                <Trash2 className="size-3" aria-hidden="true" />
-                                Remove
-                              </button>
-                            ) : null}
-                          </div>
+                        <Field data-invalid={fieldErrors.mode_of_payment ? true : undefined}>
+                          <FieldLabel htmlFor="modeOfPaymentHeader">
+                            Mode of Payment <span className="text-destructive"> *</span>
+                          </FieldLabel>
+                          <Select
+                            value={formData.mode_of_payment}
+                            onValueChange={val => handleChange('mode_of_payment', val)}
+                          >
+                            <SelectTrigger
+                              id="modeOfPaymentHeader"
+                              className="w-full"
+                              aria-invalid={fieldErrors.mode_of_payment ? true : undefined}
+                            >
+                              <SelectValue placeholder="Select mode" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                {paymentModes.map(mode => (
+                                  <SelectItem key={mode.id} value={String(mode.id)}>
+                                    {mode.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                          {fieldErrors.mode_of_payment ? (
+                            <FieldError>{fieldErrors.mode_of_payment}</FieldError>
+                          ) : null}
+                        </Field>
+                      </FieldGroup>
+                    </FieldSet>
+                  )}
+
+                  <FieldSet>
+                    <FieldLegend className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Workers List
+                    </FieldLegend>
+                    {fieldErrors.workers ? <FieldError>{fieldErrors.workers}</FieldError> : null}
+
+                    <div className="flex flex-col gap-4">
+                      {formData.workers.map((worker, index) => {
+                        const prefix = `workers.${index}`;
+                        return (
+                          <div
+                            key={index}
+                            className="rounded-lg border border-border bg-card/40 p-3"
+                          >
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <p className="text-xs font-medium text-muted-foreground">
+                                Worker {index + 1}
+                              </p>
+                              {formData.workers.length > 1 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveWorker(index)}
+                                  className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                                >
+                                  <Trash2 className="size-3" aria-hidden="true" />
+                                  Remove
+                                </button>
+                              ) : null}
+                            </div>
 
                           {/* Row 1: name | worker type | role — always 3 columns */}
                           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -869,16 +878,15 @@ export function PaymentModal({
                               value={worker.worker_name}
                               onChange={val => handleWorkerChange(index, 'worker_name', val)}
                               entityName="worker"
-                              label="Worker name"
+                              label="Worker Name"
                               requiredMark
                               error={fieldErrors[`${prefix}.worker_name`]}
-                              icon={<User aria-hidden="true" />}
                               placeholder="Enter worker name"
                             />
 
                             <Field data-invalid={fieldErrors[`${prefix}.worker_type`] ? true : undefined}>
-                              <FieldLabel>
-                                Worker type
+                              <FieldLabel htmlFor={`worker-type-${index}`}>
+                                Worker Type <span className="text-destructive"> *</span>
                               </FieldLabel>
                               <Select
                                 value={worker.worker_type}
@@ -904,7 +912,7 @@ export function PaymentModal({
                             </Field>
 
                             <Field data-invalid={fieldErrors[`${prefix}.is_main_worker`] ? true : undefined}>
-                              <FieldLabel>
+                              <FieldLabel htmlFor={`worker-role-${index}`}>
                                 Role
                               </FieldLabel>
                               <Select
@@ -931,9 +939,9 @@ export function PaymentModal({
                             </Field>
                           </div>
 
-                          {/* Row 2+: payment fields (separate mode only) — 2 columns */}
+                          {/* Row 2+: payment fields (separate mode only) — 3 columns */}
                           {paymentType === 'separate' ? (
-                            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
                               <FormInput
                                 id={`workerPayable-${index}`}
                                 name={`workerPayable-${index}`}
@@ -942,7 +950,7 @@ export function PaymentModal({
                                 onChange={e =>
                                   handleWorkerChange(index, 'amount_payable', e.target.value)
                                 }
-                                label="Amount payable"
+                                label="Amount Payable"
                                 requiredMark
                                 error={fieldErrors[`${prefix}.amount_payable`]}
                                 prefix="₹"
@@ -957,29 +965,42 @@ export function PaymentModal({
                                 onChange={e =>
                                   handleWorkerChange(index, 'amount_paid', e.target.value)
                                 }
-                                label="Amount paid"
+                                label="Amount Paid"
                                 requiredMark
                                 error={fieldErrors[`${prefix}.amount_paid`]}
                                 prefix="₹"
                                 placeholder="0.00"
                                 className="text-right tabular-nums"
                               />
-                              <ComboboxInput
-                                id={`workerMode-${index}`}
-                                name={`workerMode-${index}`}
-                                value={worker.mode_of_payment}
-                                onChange={val =>
-                                  handleWorkerChange(index, 'mode_of_payment', val)
-                                }
-                                entityName="mode_of_payment"
-                                label="Mode of payment"
-                                requiredMark
-                                maxLength={MODE_MAX_LENGTH}
-                                showCount
-                                error={fieldErrors[`${prefix}.mode_of_payment`]}
-                                icon={<CreditCard aria-hidden="true" />}
-                                placeholder="Cash, UPI..."
-                              />
+                              <Field data-invalid={fieldErrors[`${prefix}.mode_of_payment`] ? true : undefined}>
+                                <FieldLabel htmlFor={`worker-mode-${index}`}>
+                                  Mode of Payment <span className="text-destructive"> *</span>
+                                </FieldLabel>
+                                <Select
+                                  value={worker.mode_of_payment}
+                                  onValueChange={val => handleWorkerChange(index, 'mode_of_payment', val)}
+                                >
+                                  <SelectTrigger
+                                    id={`worker-mode-${index}`}
+                                    className="w-full"
+                                    aria-invalid={fieldErrors[`${prefix}.mode_of_payment`] ? true : undefined}
+                                  >
+                                    <SelectValue placeholder="Select mode" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectGroup>
+                                      {paymentModes.map(mode => (
+                                        <SelectItem key={mode.id} value={String(mode.id)}>
+                                          {mode.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectGroup>
+                                  </SelectContent>
+                                </Select>
+                                {fieldErrors[`${prefix}.mode_of_payment`] ? (
+                                  <FieldError>{fieldErrors[`${prefix}.mode_of_payment`]}</FieldError>
+                                ) : null}
+                              </Field>
                             </div>
                           ) : null}
                         </div>
@@ -995,7 +1016,7 @@ export function PaymentModal({
                     onClick={handleAddWorker}
                   >
                     <Plus className="size-3.5" aria-hidden="true" />
-                    Add worker
+                    Add Worker
                   </Button>
                 </FieldSet>
               </>
@@ -1010,26 +1031,41 @@ export function PaymentModal({
               </FieldLegend>
               <FieldGroup
                 className={
-                  recordType === 'worker' && paymentType === 'separate'
-                    ? 'grid grid-cols-1 gap-4'
-                    : 'grid grid-cols-1 gap-4 sm:grid-cols-2'
+                  recordType === 'supplier'
+                    ? 'grid grid-cols-1 gap-4 sm:grid-cols-2'
+                    : 'grid grid-cols-1 gap-4'
                 }
               >
-                {!(recordType === 'worker' && paymentType === 'separate') ? (
-                  <ComboboxInput
-                    id="modeOfPayment"
-                    name="modeOfPayment"
-                    value={formData.mode_of_payment}
-                    onChange={val => handleChange('mode_of_payment', val)}
-                    entityName="mode_of_payment"
-                    label="Mode of payment"
-                    requiredMark
-                    maxLength={MODE_MAX_LENGTH}
-                    showCount
-                    error={fieldErrors.mode_of_payment}
-                    icon={<CreditCard aria-hidden="true" />}
-                    placeholder="Cash, UPI..."
-                  />
+                {recordType === 'supplier' ? (
+                  <Field data-invalid={fieldErrors.mode_of_payment ? true : undefined}>
+                    <FieldLabel htmlFor="modeOfPayment">
+                      Mode of Payment <span className="text-destructive"> *</span>
+                    </FieldLabel>
+                    <Select
+                      value={formData.mode_of_payment}
+                      onValueChange={val => handleChange('mode_of_payment', val)}
+                    >
+                      <SelectTrigger
+                        id="modeOfPayment"
+                        className="w-full"
+                        aria-invalid={fieldErrors.mode_of_payment ? true : undefined}
+                      >
+                        <SelectValue placeholder="Select mode" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {paymentModes.map(mode => (
+                            <SelectItem key={mode.id} value={String(mode.id)}>
+                              {mode.name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    {fieldErrors.mode_of_payment ? (
+                      <FieldError>{fieldErrors.mode_of_payment}</FieldError>
+                    ) : null}
+                  </Field>
                 ) : null}
 
                 <DatePicker
@@ -1037,7 +1073,7 @@ export function PaymentModal({
                   name="date_of_payment"
                   value={formData.date_of_payment}
                   onChange={val => handleChange('date_of_payment', val)}
-                  label="Date of payment"
+                  label="Date of Payment"
                   requiredMark
                   error={fieldErrors.date_of_payment}
                 />

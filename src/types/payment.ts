@@ -92,9 +92,13 @@ export interface WorkerTypeOption {
   type: WorkerTypeName;
 }
 
+export interface PaymentModeOption {
+  id: number;
+  name: string;
+}
+
 export type EntityType =
   | 'item'
   | 'supplier'
   | 'brand'
-  | 'mode_of_payment'
   | 'worker';
